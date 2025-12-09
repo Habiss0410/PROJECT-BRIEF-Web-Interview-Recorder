@@ -1,14 +1,13 @@
 // ================== CONFIG ==================
 const BASE = "http://localhost:3000";
 const API = {
-  start: `${BASE}/api/session/start`,
-  upload: `${BASE}/api/upload-one`,
-  finish: `${BASE}/api/session/finish`,
-  saveTranscript: `${BASE}/api/save-transcript`,
-  transcribe: `${BASE}/api/transcribe`
-};
-
+    start: `${BASE}/api/session/start`,
+    upload: `${BASE}/api/upload-one`,
+    finish: `${BASE}/api/session/finish`
+  };
 // ================== QUESTIONS ==================
+
+// Question lists
 const QUESTIONS = [
   "Tell me about yourself.",
   "What interests you about our company?",
@@ -17,7 +16,7 @@ const QUESTIONS = [
   "When would you choose a simpler model over a complex one?"
 ];
 
-// ================== DOM ELEMENTS ==================
+// ================== DOM ==================
 const els = {
   token: document.getElementById("token"),
   startBtn: document.getElementById("startBtn"),
@@ -43,74 +42,73 @@ let currentBlob = null;
 
 // ================== HELPERS ==================
 async function postJSON(url, data) {
-  const res = await fetch(url, {
+  return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
+  }).then(res => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   });
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
 
 function uploadBlob(q, blob) {
   return new Promise((resolve, reject) => {
-    if (!blob) {
-      els.uploadStatus.textContent = "❌ No recorded video!";
-      return reject(new Error("Blob missing"));
-    }
 
-    const xhr = new XMLHttpRequest();
-    const progressFill = document.getElementById("progressFill");
+      const xhr = new XMLHttpRequest();
+      const progressFill = document.getElementById("progressFill");
 
-    const form = new FormData();
-    form.append("token", els.token.value);
-    form.append("folder", folder);
-    form.append("questionIndex", q);
-    form.append("file", blob, `Q${q}.webm`);
+      const form = new FormData();
+      form.append("token", els.token.value);
+      form.append("folder", folder);
+      form.append("questionIndex", q);
+      form.append("file", blob, `Q${q}.webm`);
 
-    xhr.open("POST", API.upload, true);
+      xhr.open("POST", API.upload, true);
 
-    xhr.upload.onprogress = (e) => {
-      if (!e.lengthComputable) return;
+      xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
 
-      const percent = Math.round((e.loaded / e.total) * 100);
-      progressFill.style.width = percent + "%";
-      els.uploadStatus.textContent = `📤 Uploading ${percent}%`;
-    };
+          const percent = Math.round((e.loaded / e.total) * 100);
+          progressFill.style.width = percent + "%";
+          els.uploadStatus.textContent = `📤 Uploading ${percent}%`;
+      };
 
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        progressFill.style.width = "100%";
-        els.uploadStatus.textContent = "✅ Upload success!";
-        resolve(JSON.parse(xhr.responseText));
-      } else {
-        progressFill.style.width = "0%";
-        els.uploadStatus.textContent = "❌ Upload failed!";
-        reject(new Error("Server error"));
-      }
-    };
+      xhr.onload = () => {
+          console.log("✅ Upload response:", xhr.responseText);
 
-    xhr.onerror = () => {
-      progressFill.style.width = "0%";
-      els.uploadStatus.textContent = "❌ Network error!";
-      reject(new Error("Network error"));
-    };
+          if (xhr.status === 200) {
+              progressFill.style.width = "100%";
+              els.uploadStatus.textContent = "✅ Upload succeeds!";
 
-    xhr.send(form);
+              // ✅ FIX: ensure UI moves to next question
+              resolve(JSON.parse(xhr.responseText));
+          } else {
+              progressFill.style.width = "0%";
+              els.uploadStatus.textContent = "❌ Upload error!";
+              reject(new Error("Server error"));
+          }
+      };
+
+      xhr.onerror = () => {
+          progressFill.style.width = "0%";
+          els.uploadStatus.textContent = "❌ Network error!";
+          reject(new Error("Network error"));
+      };
+
+      xhr.send(form);
   });
 }
+
+
 
 function updateUIQuestion() {
   els.questionText.textContent =
     `Question ${currentQuestion}: ${QUESTIONS[currentQuestion - 1]}`;
 }
 
-// ================== RECORDING ==================
+// ================== RECORDING CONTROL ==================
 function startRecording() {
   chunks = [];
   currentBlob = null;
@@ -120,115 +118,137 @@ function startRecording() {
 }
 
 function stopRecording() {
-  return new Promise(resolve => {
-    const handler = () => {
-      mediaRecorder.onstop = null;
-      currentBlob = new Blob(chunks, { type: "video/webm" });
-      resolve();
-    };
+    return new Promise(resolve => {
+      mediaRecorder.onstop = () => {
+        currentBlob = new Blob(chunks, { type: "video/webm" });
+        const sizeMB = currentBlob.size / 1024 / 1024;
 
-    mediaRecorder.onstop = handler;
-    mediaRecorder.stop();
-    els.uploadStatus.textContent = "⏹️ Recording stopped...";
-  });
+        if (sizeMB > 40) {
+         els.uploadStatus.textContent = `⚠️ File too large (${sizeMB.toFixed(1)} MB), try shorter answer`;
 }
+
+        resolve();
+      };
+      mediaRecorder.stop();
+      els.uploadStatus.textContent = "⏹️ Stopped recording, preparing to upload...";
+
+    });
+  }
+
+
 
 // ================== START SESSION ==================
 els.startBtn.addEventListener("click", async () => {
-  try {
-    const out = await postJSON(API.start, {
-      token: els.token.value,
-      userName: "guest"
-    });
+    try {
+      // Request session
+      const out = await postJSON(API.start, {
+        token: els.token.value,
+        userName: "guest"
+      });
 
-    folder = out.folder;
+      folder = out.folder;
 
-    els.startContainer.style.display = "none";
-    els.interview.style.display = "block";
+        // Show/Hide UI
+      els.startContainer.style.display = "none";
+      els.interview.style.display = "block";
 
-    updateUIQuestion();
+      updateUIQuestion();
 
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true
-    });
+      // ===============================
+      // ✅ Access CAMERA + MICRO (with try/catch)
+      // ===============================
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+      } catch (err) {
+        console.error("Cannot access the camera:", err);
+        alert("Cannot access camera/micro: " + err.message);
+        return;
+      }
 
-    els.video.srcObject = mediaStream;
+      // ===============================
+      // ✅ SHOW PREVIEW
+      // ===============================
+      els.video.srcObject = mediaStream;
 
-    const options = { mimeType: "video/webm; codecs=vp8,opus" };
-    mediaRecorder = new MediaRecorder(mediaStream, options);
+      // ===============================
+      // ✅ RESET CHUNKS
+      // ===============================
+      chunks = [];
 
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
+      // ✅ MIME type
+      const options = { mimeType: "video/webm; codecs=vp8,opus" };
 
-    await sleep(300);
-    startRecording();
-    els.nextBtn.disabled = false;
 
-  } catch (err) {
-    alert("Cannot begin session: " + err.message);
-  }
-});
+      // ✅ Create MediaRecorder
+      try {
+        mediaRecorder = new MediaRecorder(mediaStream, options);
+      } catch (err) {
+        console.error("MediaRecorder error:", err);
+        alert("The browser does not support MediaRecorder with this MIME.");
+        return;
+      }
 
-// ================== NEXT QUESTION ==================
+      // ✅ Get recorded video data
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      // ✅ Auto record question 1 after 400ms
+      setTimeout(() => {
+        startRecording();
+        els.nextBtn.disabled = false;
+      }, 400);
+
+    } catch (err) {
+      alert("Cannot begin session: " + err.message);
+    }
+  });
+
+
+// ================== NEXT ==================
 els.nextBtn.addEventListener("click", async () => {
   els.nextBtn.disabled = true;
 
   els.uploadStatus.textContent = `Processing question ${currentQuestion}...`;
 
-  // 1) Stop recording → ensure blob is ready
   await stopRecording();
-  await sleep(150);
 
-  // 2) Upload recorded video
   try {
-    await uploadBlob(currentQuestion, currentBlob);
-  } catch {
-    els.uploadStatus.textContent = "❌ Upload failed!";
-    els.retryBtn.style.display = "inline-block";
-    return;
+      await uploadBlob(currentQuestion, currentBlob);
+      els.uploadStatus.textContent = "✅ Upload successful!";
+  } catch (err) {
+      els.uploadStatus.textContent = "❌ Upload fail!";
+      els.retryBtn.style.display = "inline-block";
+      return;
   }
 
-  // 3) Ask server to transcribe (give server time for FFmpeg)
-  els.uploadStatus.textContent = "🧠 Transcribing on server...";
-  await sleep(200);
-
-  const res = await postJSON(API.transcribe, {
-    folder,
-    questionIndex: currentQuestion
-  });
-
-  const transcript = res.text;
-
-  // 4) Save transcript
-  await postJSON(API.saveTranscript, {
-    folder,
-    questionIndex: currentQuestion,
-    text: transcript
-  });
-
-  els.uploadStatus.textContent = "✅ Transcript saved!";
-
-  // 5) Move next
   currentQuestion++;
 
   if (currentQuestion > QUESTIONS.length) {
-    els.uploadStatus.textContent = "Interview finished!";
-    els.nextBtn.style.display = "none";
-    els.finishBtn.style.display = "inline-block";
+      els.uploadStatus.textContent = "Finished";
+      els.nextBtn.style.display = "none";
+      els.finishBtn.style.display = "inline-block";
 
-    mediaStream.getTracks().forEach(t => t.stop());
-    return;
+      mediaStream.getTracks().forEach(t => t.stop());
+      return;
   }
 
   updateUIQuestion();
-  els.uploadStatus.textContent = "Ready for next question...";
+  els.uploadStatus.textContent = "✓ Saved. Ready for next question...";
 
-  await sleep(200);
-  startRecording();
-  els.nextBtn.disabled = false;
+  setTimeout(() => {
+      startRecording();
+
+      // ✅ FIX: enable button immediately
+      els.nextBtn.disabled = false;
+  }, 300);
 });
+
 
 // ================== FINISH ==================
 els.finishBtn.addEventListener("click", async () => {
@@ -239,8 +259,10 @@ els.finishBtn.addEventListener("click", async () => {
     token: els.token.value,
     folder,
     questionsCount: QUESTIONS.length
-  });
+});
 
+
+  // Show playback
   els.interview.style.display = "none";
   els.playbackSection.style.display = "block";
 
@@ -251,7 +273,7 @@ els.finishBtn.addEventListener("click", async () => {
     wrap.style.borderRadius = "10px";
 
     const title = document.createElement("p");
-    title.textContent = `Question ${i}: ${QUESTIONS[i - 1]}`;
+    title.textContent = `Câu ${i}: ${QUESTIONS[i - 1]}`;
     title.style.color = "#fcd34d";
     title.style.fontWeight = "bold";
 
@@ -259,41 +281,40 @@ els.finishBtn.addEventListener("click", async () => {
     v.src = `${BASE}/uploads/${folder}/Q${i}.webm`;
     v.controls = true;
     v.style.width = "100%";
+    v.style.borderRadius = "8px";
 
     wrap.appendChild(title);
     wrap.appendChild(v);
     els.videoGrid.appendChild(wrap);
   }
 });
-
-// ================== RETRY ==================
 els.retryBtn.addEventListener("click", async () => {
-  els.retryBtn.style.display = "none";
+    els.retryBtn.style.display = "none";
 
-  let attempt = 0;
+    let attempt = 0;
 
-  async function tryUpload() {
-    try {
-      els.uploadStatus.textContent = `♻️ Retry attempt ${attempt + 1}`;
-      await uploadBlob(currentQuestion, currentBlob);
-      els.uploadStatus.textContent = "✅ Upload successful!";
-    } catch {
-      attempt++;
+    async function tryUpload() {
+        try {
+            els.uploadStatus.textContent = `♻️ Retry attempt ${attempt + 1}`;
+            await uploadBlob(currentQuestion, currentBlob);
+            els.uploadStatus.textContent = "✅ Upload successful!";
+        } catch (err) {
+            attempt++;
 
-      if (attempt >= 3) {
-        els.uploadStatus.textContent = "❌ Upload failed after 3 attempts";
-        els.retryBtn.style.display = "inline-block";
-        return;
-      }
+            if (attempt >= 3) {
+                els.uploadStatus.textContent = "❌ Upload failed after 3 retries";
+                els.retryBtn.style.display = "inline-block";
+                return;
+            }
 
-      const wait = Math.pow(2, attempt) * 1000;
+            const wait = Math.pow(2, attempt) * 1000; // 1s,2s,4s
+            els.uploadStatus.textContent = `⏳ Retry in ${wait / 1000}s...`;
 
-      els.uploadStatus.textContent = `⏳ Retry in ${wait / 1000}s...`;
-      await sleep(wait);
-
-      return tryUpload();
+            await new Promise(r => setTimeout(r, wait));
+            return tryUpload();
+        }
     }
-  }
 
-  tryUpload();
+    tryUpload();
 });
+
