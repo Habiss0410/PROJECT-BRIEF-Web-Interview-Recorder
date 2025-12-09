@@ -1,6 +1,2 @@
 # Tệp môi trường chứa khóa API
 .env
-
-# Thư mục chứa gói và tệp lớn
-node_modules/
-bin/
